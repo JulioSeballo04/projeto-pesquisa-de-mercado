@@ -17,13 +17,20 @@ O catálogo público da AIsa lista "Google Places" e "Google Maps" como *Coming 
 
 Fontes: [catálogo](https://aisa.one/api) · [Google Maps SERP](https://aisa.one/docs/api-reference/dataforseo/post_dataforseo-serp-google-maps-live-advanced) · [Chat API](https://aisa.one/docs/api-reference/chat/post_chat-completions).
 
-> O programa foi testado com respostas simuladas (76 testes automáticos). **Ainda não foi executado com uma chave real**, então na primeira execução use `--dry-run` (passo 5) para conferir se o formato dos dados bate com o esperado.
+> O programa foi testado com respostas simuladas (87 testes automáticos). **Ainda não foi executado com uma chave real**, então na primeira execução use `--dry-run` (passo 5) para conferir se o formato dos dados bate com o esperado.
 
 ## App web (usar em qualquer aparelho)
 
 A mesma busca, triagem, proposta e PDF, numa página que abre no navegador do celular, tablet ou computador: você escolhe as categorias, vê os leads (aprovados e descartados com o motivo), marca os que quer, gera as propostas e baixa PDF, ZIP ou planilha.
 
-**Como é protegido.** A chave da AIsa fica **só no servidor**; a página nunca a recebe. O acesso exige login com o mesmo Firebase do app de pesquisa e só entra quem estiver na lista `ALLOWED_EMAILS`. Sem essa lista o servidor nem sobe. Os limites de custo (`MAX_CATEGORIES`, `MAX_DEPTH`, `MAX_PROPOSALS`) valem no servidor, mesmo que alguém altere a página.
+**Como funciona.** O servidor **não guarda nada entre uma chamada e outra**: cada chamada faz uma coisa só (buscar uma categoria, escrever uma proposta, montar um PDF). Quem conduz o fluxo é a página. Isso é necessário porque a Vercel executa cada requisição numa função separada, sem memória compartilhada nem processos em segundo plano. Na prática você ganha um botão **Cancelar** (para de gastar créditos no meio de um lote), e os resultados sobrevivem a recarregar a página (ficam no navegador até fechar a aba ou clicar em Sair).
+
+**Como é protegido.**
+
+- A chave da AIsa fica **só no servidor**; a página nunca a recebe.
+- O acesso exige login com o mesmo Firebase do app de pesquisa e só entra quem estiver na lista `ALLOWED_EMAILS`. Sem essa lista o servidor nem sobe.
+- Cada chamada é validada no servidor (tamanhos, tipos e limites como `MAX_DEPTH`), mesmo que alguém altere a página. Como o servidor não guarda estado, ele não consegue somar o total gasto por sessão: o teto por sessão (`MAX_CATEGORIES`, `MAX_PROPOSALS`) vale na página e o teto por chamada vale no servidor. Como só os e-mails da lista entram, isso protege contra erro e clique duplo, não contra um sócio mal-intencionado.
+- Erros de conta na AIsa (chave inválida, sem saldo) **param o lote na hora**, sem insistir.
 
 ### Testar no seu computador (sem login, sem chave, sem custo)
 
@@ -37,29 +44,44 @@ python -m webapp
 
 Abra http://127.0.0.1:8000. Sem chave da AIsa, a página entra em **modo demonstração** (empresas fictícias). O modo `AUTH_MODE=none` só aceita conexões do próprio computador; o servidor recusa subir com ele em outro endereço.
 
-### Ligar o login e usar de verdade
+### O Firebase: o que já está pronto e o que falta
 
-1. No `.env`, preencha `AISA_API_KEY` (como no passo 3 abaixo).
-2. Copie do `firebase-config.js` do app de pesquisa: `projectId` para `FIREBASE_PROJECT_ID`, `apiKey` para `FIREBASE_WEB_API_KEY` e `appId` para `FIREBASE_APP_ID`. (Não são segredos.)
-3. Em `ALLOWED_EMAILS`, coloque os e-mails dos sócios (os mesmos cadastrados em Authentication do Firebase), separados por vírgula.
-4. Deixe `AUTH_MODE=firebase` e rode `python -m webapp`.
+O app usa o Firebase **só para o login** (Authentication com e-mail e senha). Não usa Firestore, então nenhuma regra do banco precisa mudar. Ele reaproveita o projeto do app de pesquisa (`pesquisa-de-mercado-c87b1`) e os usuários que já existem lá.
 
-### Publicar na internet
+| Já existe | Falta fazer |
+|---|---|
+| Projeto Firebase e Authentication com e-mail/senha ligados | Copiar `apiKey` e `appId` do `pesquisademercado/js/firebase-config.js` para as variáveis `FIREBASE_WEB_API_KEY` e `FIREBASE_APP_ID` (não são segredos) |
+| Usuários cadastrados em Authentication | Listar os e-mails permitidos em `ALLOWED_EMAILS` |
+| | Depois do deploy, adicionar o endereço da Vercel em Authentication > Configurações > **Domínios autorizados** |
 
-O app precisa de um servidor Python rodando (o GitHub Pages **não serve**, porque hospeda só páginas estáticas e não pode guardar a chave em segredo). Qualquer hospedagem que rode Docker ou Python 3.10+ serve (Render, Railway, Fly.io, um VPS...). Confira preço e limites do plano na própria hospedagem antes de escolher.
+### Publicar na Vercel
 
-1. Suba esta pasta para um repositório **privado** (o `.gitignore` já impede o envio do `.env`).
-2. Na hospedagem, crie um serviço a partir do repositório usando o `Dockerfile` (ou, sem Docker: instalar com `pip install -r requirements.txt` e iniciar com `python -m webapp`).
-3. Cadastre no painel da hospedagem, como **variáveis de ambiente**, os mesmos valores do `.env`: `AISA_API_KEY`, `AISA_MODEL`, `COMPANY_NAME`, `COMPANY_CONTACT`, `FIREBASE_*`, `ALLOWED_EMAILS` e os preços. Defina também `HOST=0.0.0.0` (a plataforma normalmente já define a `PORT`).
-4. No Firebase Console > Authentication > Configurações > **Domínios autorizados**, adicione o endereço que a hospedagem gerar.
-5. Abra o endereço (é HTTPS). No celular, use "Adicionar à tela inicial" para virar um atalho.
+> **Atenção ao plano.** Segundo os [termos da Vercel](https://vercel.com/docs/limits/fair-use-guidelines), o plano gratuito (Hobby) é restrito a **uso pessoal e não comercial**; qualquer uso comercial exige o plano Pro. Como o Prospector serve a uma consultoria, considere o Pro. Veja o preço atual na Vercel antes de decidir.
 
-Cuidados:
+1. Tenha este código num repositório do GitHub (o `.gitignore` já impede o envio do `.env`). Se o repositório for privado, a Vercel pede permissão de acesso na primeira vez.
+2. Em vercel.com: **Add New > Project**, escolha o repositório e importe. A Vercel detecta sozinha que é FastAPI (o arquivo `app.py` da raiz é a entrada). Não precisa mudar comando de build nem pasta de saída.
+3. Antes de clicar em Deploy, abra **Environment Variables** e cadastre (marque `AISA_API_KEY` como *Sensitive*):
 
-- **Um único processo.** As tarefas em andamento ficam em memória; se o servidor reiniciar, é só buscar de novo. Não configure vários "workers".
-- Planos gratuitos costumam "dormir" quando ficam sem uso, e a primeira abertura demora um pouco.
-- Nada fica gravado no servidor: os PDFs são montados na hora do download e as tarefas expiram após `JOB_TTL_SECONDS` (2 h por padrão).
-- Cada pessoa só vê as próprias buscas, e só há uma tarefa por vez por pessoa (evita clique duplo cobrando em dobro).
+   | Variável | Valor |
+   |---|---|
+   | `AUTH_MODE` | `firebase` |
+   | `FIREBASE_PROJECT_ID` | `pesquisa-de-mercado-c87b1` |
+   | `FIREBASE_WEB_API_KEY` | o `apiKey` do `firebase-config.js` |
+   | `FIREBASE_APP_ID` | o `appId` do `firebase-config.js` |
+   | `ALLOWED_EMAILS` | e-mails dos sócios, separados por vírgula |
+   | `AISA_API_KEY` | sua chave da AIsa |
+   | `AISA_MODEL` | ex.: `gpt-4.1` |
+   | `COMPANY_NAME`, `COMPANY_CONTACT` | dados que aparecem no PDF |
+   | `PRICE_TOTAL`, `INSTALLMENTS`, `DELIVERY_DAYS`, `PROPOSAL_VALIDITY_DAYS` | condições padrão da proposta |
+
+   (`HOST` e `PORT` não são necessárias na Vercel.)
+4. Clique em **Deploy**. Se faltar alguma variável, o log do deploy mostra `Faltam no .env: ...` com o nome da que falta.
+5. Adicione o endereço gerado (algo como `seu-projeto.vercel.app`) nos **Domínios autorizados** do Firebase (tabela acima).
+6. Abra o endereço e entre com um e-mail da lista. No celular, use "Adicionar à tela inicial" para virar um atalho.
+
+Limites da Vercel que valem aqui: cada chamada pode durar até 120 s (configurado em `vercel.json`; a busca e o LLM levam segundos) e o corpo de cada requisição vai até 4,5 MB (um PDF tem poucos KB).
+
+**Outras hospedagens.** Como o app não depende de estado, também roda em qualquer lugar que execute Docker (`Dockerfile` incluído) ou Python 3.10+ com `python -m webapp` (defina `HOST=0.0.0.0`).
 
 ## Passo a passo (Windows)
 
@@ -99,7 +121,7 @@ Se o PowerShell reclamar de "execução de scripts desabilitada", rode uma vez `
 Usa empresas **fictícias** e o texto padrão (sem IA), então não precisa de chave:
 
 ```powershell
-python main.py --demo --sem-llm
+python -m prospector --demo --sem-llm
 ```
 
 Abra o PDF gerado em `output\<data-hora>\propostas\` para ver o layout, e o `leads.csv` para ver as regras de descarte funcionando.
@@ -108,14 +130,14 @@ Abra o PDF gerado em `output\<data-hora>\propostas\` para ver o layout, e o `lea
 Busca e filtra, mas **não** chama o LLM nem gera PDFs. Custa só a busca no Maps:
 
 ```powershell
-python main.py -c padaria --dry-run --profundidade 20
+python -m prospector -c padaria --dry-run --profundidade 20
 ```
 
 Confira se apareceram padarias de Bragança Paulista e se o filtro "sem site" faz sentido. Se der erro, veja "Problemas comuns" abaixo.
 
 ### 6. Gerar as propostas
 ```powershell
-python main.py -c padaria --limite 3
+python -m prospector -c padaria --limite 3
 ```
 
 O programa mostra o plano (categorias, filtros e o que vai consumir créditos) e pergunta `Continuar? [s/N]`. Use `--yes` para pular a pergunta.
@@ -123,8 +145,8 @@ O programa mostra o plano (categorias, filtros e o que vai consumir créditos) e
 Para várias categorias de uma vez, repita o `-c` ou rode sem ele para usar a lista `CATEGORIES` do `.env`:
 
 ```powershell
-python main.py -c padaria -c barbearia -c "pet shop" --limite 10
-python main.py --limite 10
+python -m prospector -c padaria -c barbearia -c "pet shop" --limite 10
+python -m prospector --limite 10
 ```
 
 ### 7. Onde ficam os resultados
@@ -188,10 +210,12 @@ Não precisam de internet nem de chave.
 ## Estrutura do código
 
 ```
-main.py                    ponto de entrada da linha de comando
-webapp/                    app web (FastAPI): main.py (API), auth.py (login), jobs.py (tarefas),
-                           settings.py (limites), static/ (página HTML/CSS/JS)
+app.py                     entrada da Vercel (expõe o FastAPI `app`)
+vercel.json                limite de duração e arquivos excluídos do deploy
+webapp/                    app web (FastAPI, sem estado): main.py (API), schemas.py (validação),
+                           auth.py (login), settings.py (limites), static/ (página HTML/CSS/JS)
 prospector/
+  __main__.py              linha de comando (python -m prospector)
   config.py                lê e valida o .env
   aisa_client.py           HTTP na AIsa: header único, erros em português, retentativas seguras
   places.py                busca no Maps, triagem e regra "sem site próprio"
@@ -201,5 +225,5 @@ prospector/
   demo_data.py             empresas fictícias do modo --demo
   cli.py                   orquestra tudo
 tests/test_prospector.py   46 testes do núcleo e da linha de comando
-tests/test_webapp.py       30 testes do app web (login, limites, isolamento entre usuários, fluxo completo)
+tests/test_webapp.py       41 testes do app web (login, validação, erros da AIsa, fluxo completo, entrada da Vercel)
 ```

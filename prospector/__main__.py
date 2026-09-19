@@ -1,4 +1,4 @@
-"""Ponto de entrada: python main.py --help"""
+"""Linha de comando: python -m prospector --help"""
 
 import sys
 

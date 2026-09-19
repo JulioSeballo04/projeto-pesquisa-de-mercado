@@ -1,17 +1,25 @@
-"""API e páginas do app web.
+"""API e página do app web.
 
-Rotas (todas exigem login, exceto /api/config e os arquivos da página):
-  GET  /api/config                        dados públicos para montar a tela e fazer login
-  POST /api/search                        inicia a busca de leads         -> {jobId}
-  GET  /api/jobs/{id}                     estado da tarefa (a página consulta a cada ~1,5 s)
-  POST /api/jobs/{id}/proposals           gera propostas dos leads escolhidos
-  GET  /api/jobs/{id}/leads/{lead}/pdf    PDF de uma proposta pronta
-  GET  /api/jobs/{id}/proposals.zip       todas as propostas prontas
-  GET  /api/jobs/{id}/leads.csv           planilha de todos os leads
+SEM ESTADO NO SERVIDOR. A Vercel executa cada requisição numa função separada, sem memória
+compartilhada e sem processos em segundo plano. Por isso o navegador conduz o fluxo
+(uma chamada por categoria, uma por proposta) e o servidor faz uma única coisa por chamada.
+
+Rotas (exigem login, exceto GET /api/config e os arquivos da página):
+  GET  /api/config     dados públicos para montar a tela e fazer login
+  POST /api/search     busca UMA categoria e devolve os leads já triados
+  POST /api/proposal   escreve a proposta de UM lead (chama o LLM, se pedido)
+  POST /api/pdf        monta o PDF de um lead (sem custo: não chama a AIsa)
+  POST /api/zip        monta um ZIP com vários PDFs
+  POST /api/csv        monta a planilha de leads
+
+Erros da AIsa nunca voltam como 401/403 (a página trataria como "sessão expirada"):
+  424 = problema de conta/chave/rota na AIsa (repetir não adianta: a página para o lote)
+  502 = falha momentânea da AIsa (rede, instabilidade)
 """
 
 from __future__ import annotations
 
+import dataclasses
 import io
 import logging
 import threading
@@ -20,59 +28,38 @@ from pathlib import Path
 from typing import Callable
 
 from fastapi import Depends, FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, JSONResponse, Response
+from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field, field_validator
 
-from prospector.aisa_client import AisaClient
-from prospector.config import Config, ConfigError
+from prospector.aisa_client import AisaClient, AisaError
+from prospector.config import Config
+from prospector.demo_data import ITENS_DEMO
 from prospector.pdf_export import gerar_pdf_bytes
-from prospector.places import slug
+from prospector.places import buscar_leads, slug
+from prospector.proposal import gerar_proposta
 from prospector.relatorio import csv_bytes
 
 from .auth import criar_verificador_firebase, obter_usuario
-from .jobs import JobStore, cfg_com, executar_busca, executar_propostas
+from .schemas import (
+    PedidoBusca,
+    PedidoCsv,
+    PedidoPdf,
+    PedidoProposta,
+    PedidoZip,
+    lead_para_json,
+    proposta_para_json,
+)
 from .settings import WebSettings
 
 log = logging.getLogger(__name__)
 
 PASTA_ESTATICA = Path(__file__).resolve().parent / "static"
+ERROS_DE_CONTA = (401, 402, 403, 404)
 
 
-# ---------- Modelos de entrada (a validação acontece aqui, no servidor) ----------
-
-
-class PedidoBusca(BaseModel):
-    categories: list[str] = Field(min_length=1)
-    min_rating: float = Field(ge=0, le=5)
-    min_reviews: int = Field(ge=0, le=1_000_000)
-    depth: int = Field(ge=1, le=700)
-    allow_no_phone: bool = False
-    demo: bool = False
-
-    @field_validator("categories")
-    @classmethod
-    def _categorias(cls, valor: list[str]) -> list[str]:
-        limpas: list[str] = []
-        for c in valor:
-            c = " ".join(c.split())
-            if not c or len(c) > 60:
-                raise ValueError("Cada categoria deve ter de 1 a 60 caracteres.")
-            if c.lower() not in (x.lower() for x in limpas):
-                limpas.append(c)
-        return limpas
-
-
-class PedidoPropostas(BaseModel):
-    lead_ids: list[str] = Field(min_length=1)
-    use_llm: bool = True
-    price_total: float = Field(gt=0, le=10_000_000)
-    installments: int = Field(ge=1, le=24)
-    delivery_days: int = Field(ge=1, le=365)
-    validity_days: int = Field(ge=1, le=365)
-
-
-# ---------- Fábrica do app ----------
+def erro_da_aisa(erro: AisaError) -> HTTPException:
+    codigo = 424 if erro.status in ERROS_DE_CONTA else 502
+    return HTTPException(status_code=codigo, detail=str(erro))
 
 
 def criar_app(
@@ -89,18 +76,17 @@ def criar_app(
     app = FastAPI(title="Prospector", docs_url=None, redoc_url=None, openapi_url=None)
     app.state.settings = settings
     app.state.cfg = cfg
-    app.state.jobs = JobStore(settings.job_ttl_seconds)
     app.state.verificar_token = verificar_token or (
         criar_verificador_firebase(settings.firebase_project_id) if settings.auth_mode == "firebase" else None
     )
 
     _cliente: dict = {}
-    _lock_cliente = threading.Lock()
+    _trava = threading.Lock()
 
     def cliente_aisa() -> AisaClient:
         if not cfg.api_key:
-            raise HTTPException(400, "AISA_API_KEY não configurada no servidor. Use o modo demonstração ou configure o .env.")
-        with _lock_cliente:
+            raise HTTPException(400, "AISA_API_KEY não configurada no servidor. Use o modo demonstração ou configure a chave.")
+        with _trava:
             if "c" not in _cliente:
                 _cliente["c"] = fabrica_cliente(cfg)
             return _cliente["c"]
@@ -114,12 +100,6 @@ def criar_app(
         if request.url.path.startswith("/api/"):
             resposta.headers["Cache-Control"] = "no-store"  # dados de empresas e propostas não ficam em cache
         return resposta
-
-    def job_do_usuario(job_id: str, usuario: str):
-        job = app.state.jobs.obter(job_id, usuario)
-        if job is None:
-            raise HTTPException(404, "Tarefa não encontrada (ela pode ter expirado). Faça uma nova busca.")
-        return job
 
     # ----- rotas -----
 
@@ -148,115 +128,86 @@ def criar_app(
             },
         }
 
-    @app.post("/api/search", status_code=202)
+    @app.post("/api/search")
     def buscar(pedido: PedidoBusca, usuario: str = Depends(obter_usuario)):
-        if len(pedido.categories) > settings.max_categories:
-            raise HTTPException(422, f"No máximo {settings.max_categories} categorias por busca.")
         if pedido.depth > settings.max_depth:
             raise HTTPException(422, f"A profundidade máxima é {settings.max_depth}.")
         cliente = None if pedido.demo else cliente_aisa()
+        cfg_busca = dataclasses.replace(cfg, min_rating=pedido.min_rating, min_reviews=pedido.min_reviews)
+        try:
+            leads = buscar_leads(
+                cliente,
+                cfg_busca,
+                list(ITENS_DEMO) if pedido.demo else [pedido.category],
+                pedido.depth,
+                itens_demo=ITENS_DEMO if pedido.demo else None,
+                permitir_sem_telefone=pedido.allow_no_phone,
+            )
+        except AisaError as erro:
+            raise erro_da_aisa(erro) from None
+        return {"leads": [lead_para_json(l) for l in leads]}
 
-        cfg_busca = cfg_com(cfg, min_rating=pedido.min_rating, min_reviews=pedido.min_reviews)
-        job = app.state.jobs.criar_exclusivo(usuario, demo=pedido.demo)
-        if job is None:
-            raise HTTPException(409, "Já existe uma tarefa em andamento. Aguarde terminar.")
-        job.log("Busca iniciada.")
-        threading.Thread(
-            target=executar_busca,
-            args=(job, cfg_busca, cliente, pedido.categories, pedido.depth, pedido.allow_no_phone),
-            daemon=True,
-        ).start()
-        return {"jobId": job.id}
+    @app.post("/api/proposal")
+    def proposta(pedido: PedidoProposta, usuario: str = Depends(obter_usuario)):
+        lead = pedido.lead.para_lead()
+        if not lead.approved:
+            raise HTTPException(422, "Só é possível gerar proposta para leads aprovados.")
+        cliente = cliente_aisa() if pedido.use_llm else None
+        try:
+            texto = gerar_proposta(cliente, lead.business, cfg, usar_llm=pedido.use_llm)
+        except AisaError as erro:
+            raise erro_da_aisa(erro) from None
+        return {"proposal": proposta_para_json(texto)}
 
-    @app.get("/api/jobs/{job_id}")
-    def estado(job_id: str, request: Request, usuario: str = Depends(obter_usuario)):
-        return job_do_usuario(job_id, usuario).snapshot()
-
-    @app.post("/api/jobs/{job_id}/proposals", status_code=202)
-    def gerar_propostas(job_id: str, pedido: PedidoPropostas, request: Request, usuario: str = Depends(obter_usuario)):
-        job = job_do_usuario(job_id, usuario)
-        if job.status == "running":
-            raise HTTPException(409, "Esta tarefa ainda está em andamento.")
-        ids = list(dict.fromkeys(pedido.lead_ids))  # sem repetidos, mantendo a ordem
-        if len(ids) > settings.max_proposals:
-            raise HTTPException(422, f"No máximo {settings.max_proposals} propostas por vez.")
-        with job.lock:
-            invalidos = [i for i in ids if i not in job.leads or not job.leads[i].lead.approved]
-        if invalidos:
-            raise HTTPException(422, "Só é possível gerar proposta para leads aprovados desta busca.")
-        cliente = cliente_aisa() if (pedido.use_llm and not job.demo) else None
-        # No modo demonstração nunca chamamos o LLM (é de graça e sem chave).
-        usar_llm = pedido.use_llm and not job.demo
-
-        cfg_proposta = cfg_com(
+    def cfg_da_proposta(opcoes) -> Config:
+        return dataclasses.replace(
             cfg,
-            price_total=pedido.price_total,
-            installments=pedido.installments,
-            delivery_days=pedido.delivery_days,
-            validity_days=pedido.validity_days,
+            price_total=opcoes.price_total,
+            installments=opcoes.installments,
+            delivery_days=opcoes.delivery_days,
+            validity_days=opcoes.validity_days,
         )
-        if not app.state.jobs.retomar_exclusivo(job):
-            raise HTTPException(409, "Já existe uma tarefa em andamento. Aguarde terminar.")
-        threading.Thread(
-            target=executar_propostas, args=(job, cfg_proposta, cliente, ids, usar_llm), daemon=True
-        ).start()
-        return {"jobId": job.id}
 
-    @app.get("/api/jobs/{job_id}/leads/{lead_id}/pdf")
-    def baixar_pdf(job_id: str, lead_id: str, request: Request, usuario: str = Depends(obter_usuario)):
-        job = job_do_usuario(job_id, usuario)
-        with job.lock:
-            reg = job.leads.get(lead_id)
-            pronto = reg is not None and reg.proposal is not None
-            if pronto:
-                negocio, proposta, cfg_pdf = reg.lead.business, reg.proposal, reg.proposal_cfg
-        if not pronto:
-            raise HTTPException(404, "Proposta ainda não gerada para este lead.")
-        conteudo = gerar_pdf_bytes(negocio, proposta, cfg_pdf)
+    @app.post("/api/pdf")
+    def baixar_pdf(pedido: PedidoPdf, usuario: str = Depends(obter_usuario)):
+        negocio = pedido.lead.para_lead().business
+        conteudo = gerar_pdf_bytes(negocio, pedido.proposal.para_proposta(), cfg_da_proposta(pedido))
         return Response(
             conteudo,
             media_type="application/pdf",
             headers={"Content-Disposition": f'attachment; filename="proposta-{slug(negocio.name)}.pdf"'},
         )
 
-    @app.get("/api/jobs/{job_id}/proposals.zip")
-    def baixar_zip(job_id: str, request: Request, usuario: str = Depends(obter_usuario)):
-        job = job_do_usuario(job_id, usuario)
-        with job.lock:
-            prontos = [
-                (r.lead.business, r.proposal, r.proposal_cfg) for r in job.leads.values() if r.proposal is not None
-            ]
-        if not prontos:
-            raise HTTPException(404, "Nenhuma proposta pronta para baixar.")
+    @app.post("/api/zip")
+    def baixar_zip(pedido: PedidoZip, usuario: str = Depends(obter_usuario)):
+        if len(pedido.items) > settings.max_proposals:
+            raise HTTPException(422, f"No máximo {settings.max_proposals} propostas por arquivo.")
+        cfg_pdf = cfg_da_proposta(pedido)
         buffer = io.BytesIO()
         usados: set[str] = set()
         with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as arquivo:
-            for negocio, proposta, cfg_pdf in prontos:
-                nome = f"proposta-{slug(negocio.name)}"
-                if nome in usados:  # dois negócios com o mesmo nome
-                    nome += f"-{slug(negocio.place_id)[-6:]}"
+            for item in pedido.items:
+                negocio = item.lead.para_lead().business
+                base = f"proposta-{slug(negocio.name)}"
+                nome, contador = base, 1
+                while nome in usados:  # dois negócios com o mesmo nome (ou o mesmo lead repetido)
+                    contador += 1
+                    nome = f"{base}-{contador}"
                 usados.add(nome)
-                arquivo.writestr(f"{nome}.pdf", gerar_pdf_bytes(negocio, proposta, cfg_pdf))
+                arquivo.writestr(f"{nome}.pdf", gerar_pdf_bytes(negocio, item.proposal.para_proposta(), cfg_pdf))
         return Response(
             buffer.getvalue(),
             media_type="application/zip",
             headers={"Content-Disposition": 'attachment; filename="propostas.zip"'},
         )
 
-    @app.get("/api/jobs/{job_id}/leads.csv")
-    def baixar_csv(job_id: str, request: Request, usuario: str = Depends(obter_usuario)):
-        job = job_do_usuario(job_id, usuario)
-        with job.lock:
-            leads = [r.lead for r in job.leads.values()]
+    @app.post("/api/csv")
+    def baixar_csv(pedido: PedidoCsv, usuario: str = Depends(obter_usuario)):
         return Response(
-            csv_bytes(leads),
+            csv_bytes([l.para_lead() for l in pedido.leads]),
             media_type="text/csv; charset=utf-8",
             headers={"Content-Disposition": 'attachment; filename="leads.csv"'},
         )
-
-    @app.exception_handler(ConfigError)
-    async def erro_de_config(_: Request, erro: ConfigError):
-        return JSONResponse({"detail": str(erro)}, status_code=400)
 
     # ----- página -----
 

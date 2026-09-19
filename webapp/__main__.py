@@ -32,7 +32,6 @@ def main() -> int:
         print("Recusado: AUTH_MODE=none só pode rodar com HOST=127.0.0.1. Ligue o login (AUTH_MODE=firebase).")
         return 1
 
-    # workers=1: as tarefas ficam em memória, então precisa ser um único processo.
     uvicorn.run(app, host=host, port=porta, log_level="info")
     return 0
 

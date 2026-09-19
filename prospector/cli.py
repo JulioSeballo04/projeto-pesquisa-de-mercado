@@ -26,7 +26,7 @@ ERROS_FATAIS = (401, 402, 403, 404)
 
 def criar_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
-        prog="main.py",
+        prog="python -m prospector",
         description="Encontra negócios locais bem avaliados e sem site próprio e gera propostas comerciais em PDF.",
     )
     p.add_argument("-c", "--categoria", action="append", metavar="TERMO",

@@ -20,5 +20,5 @@ USER app
 
 EXPOSE 8000
 
-# Um único processo: as tarefas em andamento ficam em memória (veja webapp/jobs.py).
+# O app não guarda estado no servidor, então também funciona com vários processos.
 CMD ["python", "-m", "webapp"]

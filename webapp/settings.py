@@ -39,11 +39,11 @@ class WebSettings:
     firebase_app_id: str
     firebase_auth_domain: str
     allowed_emails: frozenset[str]
-    # Limites que protegem seus créditos, mesmo que alguém altere o front-end:
+    # Limites que protegem seus créditos, aplicados em CADA requisição (o servidor não guarda estado,
+    # então o total por sessão é controlado pela página; aqui fica o teto de cada chamada):
     max_categories: int
     max_depth: int
     max_proposals: int
-    job_ttl_seconds: int
 
     @classmethod
     def from_env(cls) -> "WebSettings":
@@ -86,7 +86,6 @@ class WebSettings:
             max_categories=_inteiro("MAX_CATEGORIES", 8, 1, 30),
             max_depth=_inteiro("MAX_DEPTH", 100, 1, 700),
             max_proposals=_inteiro("MAX_PROPOSALS", 15, 1, 100),
-            job_ttl_seconds=_inteiro("JOB_TTL_SECONDS", 7200, 60, 86400),
         )
 
     def firebase_public(self) -> dict | None:
