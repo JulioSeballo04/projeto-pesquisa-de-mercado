@@ -1,0 +1,10 @@
+# Chave da API e configuração local: NUNCA subir para o GitHub
+.env
+
+# Ambiente virtual e caches do Python
+.venv/
+__pycache__/
+*.pyc
+
+# Resultado das execuções (propostas com dados de empresas reais)
+output/

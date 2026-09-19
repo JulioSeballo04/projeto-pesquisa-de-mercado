@@ -1,0 +1,7 @@
+requests>=2.31
+python-dotenv>=1.0
+fpdf2>=2.7.9
+# App web
+fastapi>=0.110
+uvicorn>=0.29
+google-auth>=2.29

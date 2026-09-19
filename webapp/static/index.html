@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#0f6e56" />
+  <title>Prospector — propostas para negócios locais</title>
+  <link rel="icon" href="/static/icon.svg" type="image/svg+xml" />
+  <link rel="manifest" href="/static/manifest.webmanifest" />
+  <link rel="stylesheet" href="/static/app.css" />
+</head>
+<body>
+  <header class="topo">
+    <h1>Prospector <span class="sub" id="cidade"></span></h1>
+    <div class="usuario">
+      <span id="usuario-email"></span>
+      <button type="button" id="btn-sair" class="btn btn--sec btn--sm" hidden>Sair</button>
+    </div>
+  </header>
+
+  <main class="conteudo">
+    <p class="carregando" id="carregando">Carregando...</p>
+
+    <!-- ============ LOGIN ============ -->
+    <section class="painel painel--login" id="tela-login" hidden>
+      <h2>Entrar</h2>
+      <p class="dica">Use o e-mail e a senha cadastrados no Firebase do app de pesquisa.</p>
+      <p class="erro" id="login-erro" role="alert" hidden></p>
+      <form id="form-login" novalidate>
+        <div class="campo">
+          <label for="login-email">E-mail</label>
+          <input id="login-email" type="email" autocomplete="username" required />
+        </div>
+        <div class="campo">
+          <label for="login-senha">Senha</label>
+          <input id="login-senha" type="password" autocomplete="current-password" required />
+        </div>
+        <button type="submit" class="btn" id="btn-entrar">Entrar</button>
+      </form>
+    </section>
+
+    <!-- ============ APP ============ -->
+    <div id="tela-app" hidden>
+      <p class="aviso" id="aviso-config" hidden></p>
+
+      <section class="painel">
+        <h2>1. Buscar</h2>
+        <form id="form-busca" novalidate>
+          <div class="campo">
+            <label for="cat-entrada">Categorias</label>
+            <div class="chips" id="chips" aria-live="polite"></div>
+            <div class="linha">
+              <input id="cat-entrada" type="text" maxlength="60" placeholder="ex.: padaria, barbearia, pet shop" enterkeyhint="done" />
+              <button type="button" class="btn btn--sec" id="btn-add-cat">Adicionar</button>
+            </div>
+          </div>
+
+          <div class="grade">
+            <div class="campo">
+              <label for="f-nota">Nota mínima</label>
+              <input id="f-nota" type="text" inputmode="decimal" value="4,5" />
+            </div>
+            <div class="campo">
+              <label for="f-avaliacoes">Mín. de avaliações</label>
+              <input id="f-avaliacoes" type="text" inputmode="numeric" value="10" />
+            </div>
+            <div class="campo">
+              <label for="f-profundidade">Resultados por categoria</label>
+              <input id="f-profundidade" type="text" inputmode="numeric" value="40" />
+            </div>
+          </div>
+
+          <label class="opcao"><input type="checkbox" id="f-sem-telefone" /> Incluir empresas sem telefone</label>
+          <label class="opcao"><input type="checkbox" id="f-demo" /> Modo demonstração (dados fictícios, sem custo)</label>
+
+          <p class="dica" id="plano" aria-live="polite"></p>
+          <p class="erro" id="busca-erro" role="alert" hidden></p>
+          <button type="submit" class="btn" id="btn-buscar">Buscar leads</button>
+        </form>
+      </section>
+
+      <section class="painel" id="painel-progresso" hidden>
+        <h2 id="titulo-progresso">Andamento</h2>
+        <ul class="progresso" id="lista-progresso" aria-live="polite"></ul>
+        <p class="erro" id="erro-tarefa" role="alert" hidden></p>
+      </section>
+
+      <section class="painel" id="painel-resultados" hidden>
+        <h2>2. Resultados</h2>
+        <div class="resumo" id="resumo"></div>
+        <div class="barra">
+          <label class="opcao"><input type="checkbox" id="mostrar-descartados" /> Mostrar descartados</label>
+          <span class="espaco"></span>
+          <button type="button" class="btn btn--sec btn--sm" id="btn-sel-todos">Selecionar aprovados</button>
+          <button type="button" class="btn btn--sec btn--sm" id="btn-sel-nenhum">Limpar</button>
+        </div>
+        <ul class="leads" id="lista-leads"></ul>
+      </section>
+
+      <section class="painel" id="painel-propostas" hidden>
+        <h2>3. Propostas</h2>
+        <p class="dica" id="empresa-proposta"></p>
+        <div class="grade grade--4">
+          <div class="campo">
+            <label for="p-preco">Investimento (R$)</label>
+            <input id="p-preco" type="text" inputmode="decimal" />
+          </div>
+          <div class="campo">
+            <label for="p-parcelas">Parcelas</label>
+            <input id="p-parcelas" type="text" inputmode="numeric" />
+          </div>
+          <div class="campo">
+            <label for="p-prazo">Prazo (dias)</label>
+            <input id="p-prazo" type="text" inputmode="numeric" />
+          </div>
+          <div class="campo">
+            <label for="p-validade">Validade (dias)</label>
+            <input id="p-validade" type="text" inputmode="numeric" />
+          </div>
+        </div>
+        <label class="opcao"><input type="checkbox" id="p-llm" checked /> Escrever o texto com IA (consome créditos do LLM; desmarcado usa texto padrão)</label>
+        <p class="erro" id="proposta-erro" role="alert" hidden></p>
+        <div class="acoes">
+          <button type="button" class="btn" id="btn-gerar">Gerar propostas</button>
+          <button type="button" class="btn btn--sec" id="btn-zip" disabled>Baixar todas (ZIP)</button>
+          <button type="button" class="btn btn--sec" id="btn-csv" disabled>Baixar planilha (CSV)</button>
+        </div>
+        <p class="dica">Revise cada PDF antes de enviar: o texto é gerado automaticamente a partir de dados públicos do Google Maps.</p>
+      </section>
+    </div>
+  </main>
+
+  <script type="module" src="/static/app.js"></script>
+</body>
+</html>
