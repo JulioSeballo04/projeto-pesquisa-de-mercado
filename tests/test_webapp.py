@@ -430,9 +430,14 @@ class TestEntradaDaVercel(unittest.TestCase):
         self.assertEqual(cliente.get("/api/config").status_code, 200)
         self.assertEqual(cliente.post("/api/search", json=PEDIDO_BUSCA).status_code, 200)
 
-    def test_configuracao_insegura_impede_o_deploy_com_mensagem_clara(self):
-        with self.assertRaisesRegex(WebConfigError, "Faltam no .env"):
-            self.importar()  # modo firebase (padrão) sem nenhuma variável
+    def test_configuracao_insegura_mostra_mensagem_clara_em_vez_de_500_genérico(self):
+        modulo = self.importar()  # modo firebase (padrão) sem nenhuma variável
+        cliente = TestClient(modulo.app, raise_server_exceptions=False)
+        resposta = cliente.get("/")
+        self.assertEqual(resposta.status_code, 500)
+        self.assertIn("Faltam no .env", resposta.text)
+        # nenhuma rota real fica exposta: qualquer caminho cai na mesma mensagem de erro
+        self.assertIn("Faltam no .env", cliente.post("/api/search", json={}).text)
 
 
 if __name__ == "__main__":
