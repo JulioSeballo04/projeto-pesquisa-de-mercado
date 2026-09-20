@@ -75,7 +75,7 @@ O app usa o Firebase **só para o login** (Authentication com e-mail e senha). N
    | `PRICE_TOTAL`, `INSTALLMENTS`, `DELIVERY_DAYS`, `PROPOSAL_VALIDITY_DAYS` | condições padrão da proposta |
 
    (`HOST` e `PORT` não são necessárias na Vercel.)
-4. Clique em **Deploy**. Se faltar alguma variável, o log do deploy mostra `Faltam no .env: ...` com o nome da que falta.
+4. Clique em **Deploy**. O build passa mesmo se faltar variável (a checagem só roda quando chega a primeira visita). Se faltar alguma variável, a página trava em erro 500 ao abrir; o motivo (`Faltam no .env: ...` ou outra mensagem) fica nos **Runtime Logs**, não no log do build: no projeto na Vercel, abra a aba **Logs** (ou **Deployments → seu deploy → Functions**) e recarregue a página para ver o erro aparecer em tempo real.
 5. Adicione o endereço gerado (algo como `seu-projeto.vercel.app`) nos **Domínios autorizados** do Firebase (tabela acima).
 6. Abra o endereço e entre com um e-mail da lista. No celular, use "Adicionar à tela inicial" para virar um atalho.
 
@@ -200,6 +200,7 @@ Não precisam de internet nem de chave.
 | `Limite de requisições` (429) | Espere alguns minutos e rode de novo. |
 | `Nenhum lead aprovado` | Reduza `--min-nota`, aumente `--profundidade` ou tente outra categoria. Veja a contagem de motivos no fim da triagem. |
 | Acentos estranhos no terminal | Use o Windows Terminal/PowerShell atual, ou rode `chcp 65001` antes. |
+| Erro 500 ao abrir o app na Vercel | Falta (ou está errada) uma variável de ambiente obrigatória: `FIREBASE_PROJECT_ID`, `FIREBASE_WEB_API_KEY`, `FIREBASE_APP_ID` ou `ALLOWED_EMAILS` (modo `firebase`, o padrão). Confira em **Project Settings > Environment Variables** na Vercel e veja a mensagem exata nos **Runtime Logs** (não no log do build). |
 
 ## Uso responsável
 
