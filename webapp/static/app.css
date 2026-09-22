@@ -85,6 +85,11 @@ input:focus-visible, button:focus-visible, a:focus-visible { outline: 2px solid 
 .opcao { display: flex; align-items: flex-start; gap: 8px; font-size: 14px; margin: 6px 0; cursor: pointer; }
 .opcao input { margin-top: 4px; }
 
+.avancado { margin: 10px 0; border-top: 1px solid var(--border); padding-top: 10px; }
+.avancado summary { cursor: pointer; font-size: 14px; font-weight: 500; color: var(--accent); }
+.avancado[open] summary { margin-bottom: 10px; }
+.avancado .campo:last-child { margin-bottom: 0; }
+
 .btn {
   padding: 11px 16px;
   border: 1px solid var(--accent);

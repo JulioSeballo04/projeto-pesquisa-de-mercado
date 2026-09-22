@@ -9,11 +9,16 @@ alterada por quem a estiver usando.
 from __future__ import annotations
 
 import hashlib
+import re
 
 from pydantic import BaseModel, Field, field_validator
 
 from prospector.models import Business, Lead, Proposal
 from prospector.places import MOTIVOS_LEGIVEIS
+
+
+# "latitude,longitude,zoom", ex.: "-22.9527,-46.5419,13z" (o mesmo formato de LOCATION_COORDINATE no .env).
+_LOCALIZACAO = re.compile(r"-?\d{1,3}(\.\d+)?,-?\d{1,3}(\.\d+)?,\d{1,2}z")
 
 
 def chave_lead(place_id: str) -> str:
@@ -38,6 +43,10 @@ class PedidoBusca(BaseModel):
     depth: int = Field(ge=1, le=700)
     allow_no_phone: bool = False
     demo: bool = False
+    # Deixe em branco (None) para usar a cidade/localização padrão do servidor. Ignorados no modo
+    # demonstração: os dados fictícios são sempre de Bragança Paulista.
+    city_name: str | None = Field(default=None, max_length=120)
+    location_coordinate: str | None = Field(default=None, max_length=40)
 
     @field_validator("category")
     @classmethod
@@ -45,6 +54,28 @@ class PedidoBusca(BaseModel):
         limpa = " ".join(valor.split())
         if not limpa or len(limpa) > 60:
             raise ValueError("A categoria deve ter de 1 a 60 caracteres.")
+        return limpa
+
+    @field_validator("city_name")
+    @classmethod
+    def _cidade(cls, valor: str | None) -> str | None:
+        if valor is None:
+            return None
+        limpa = " ".join(valor.split())
+        return limpa or None
+
+    @field_validator("location_coordinate")
+    @classmethod
+    def _localizacao(cls, valor: str | None) -> str | None:
+        if valor is None:
+            return None
+        limpa = valor.strip()
+        if not limpa:
+            return None
+        if not _LOCALIZACAO.fullmatch(limpa):
+            raise ValueError(
+                "A localização deve estar no formato 'latitude,longitude,zoom' (ex.: -22.9527,-46.5419,13z)."
+            )
         return limpa
 
 

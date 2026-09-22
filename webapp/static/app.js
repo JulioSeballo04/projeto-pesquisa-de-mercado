@@ -229,6 +229,7 @@ function configurarApp() {
   $("#p-prazo").value = String(defaults.deliveryDays);
   $("#p-validade").value = String(defaults.validityDays);
   $("#empresa-proposta").textContent = `Proposta em nome de "${estado.config.company.name}" (definido no servidor).`;
+  $("#cidade-padrao").textContent = estado.config.city;
 
   if (!hasApiKey) {
     const aviso = $("#aviso-config");
@@ -256,7 +257,7 @@ function configurarApp() {
     renderChips();
     atualizarPlano();
   });
-  for (const id of ["#f-profundidade", "#f-demo"]) $(id).addEventListener("input", atualizarPlano);
+  for (const id of ["#f-profundidade", "#f-demo", "#f-cidade"]) $(id).addEventListener("input", atualizarPlano);
 
   $("#form-busca").addEventListener("submit", (e) => {
     e.preventDefault();
@@ -351,9 +352,22 @@ function adicionarCategorias() {
 function atualizarPlano() {
   const demo = $("#f-demo").checked;
   const profundidade = lerNumero($("#f-profundidade").value);
+  const cidade = $("#f-cidade").value.trim() || estado.config.city;
+  $("#f-cidade").disabled = demo;
+  $("#f-local").disabled = demo;
   $("#plano").textContent = demo
     ? "Modo demonstração: nenhuma chamada paga. As categorias são fixas (padaria, barbearia, salão de beleza, restaurante e academia)."
-    : `${estado.categorias.length} busca(s) no Google Maps (até ${Number.isFinite(profundidade) ? profundidade : "?"} resultados cada). Isso consome créditos da AIsa.`;
+    : `${estado.categorias.length} busca(s) no Google Maps em ${cidade} (até ${Number.isFinite(profundidade) ? profundidade : "?"} resultados cada). Isso consome créditos da AIsa.`;
+}
+
+// Lê a cidade/localização personalizadas do formulário (vazio = usa o padrão do servidor).
+function lerLocalizacaoPersonalizada() {
+  const cidade = $("#f-cidade").value.trim();
+  const local = $("#f-local").value.trim();
+  if (local && !/^-?\d{1,3}(\.\d+)?,-?\d{1,3}(\.\d+)?,\d{1,2}z$/.test(local)) {
+    throw new Error("A localização deve estar no formato 'latitude,longitude,zoom' (ex.: -22.9527,-46.5419,13z).");
+  }
+  return { city_name: cidade || undefined, location_coordinate: local || undefined };
 }
 
 function lerFiltros() {
@@ -403,9 +417,10 @@ async function iniciarBusca() {
   mostrarErro("#busca-erro", "");
   if (estado.ocupado) return;
   const demo = $("#f-demo").checked;
-  let filtros;
+  let filtros, localizacao;
   try {
     filtros = lerFiltros();
+    localizacao = lerLocalizacaoPersonalizada();
   } catch (erro) {
     mostrarErro("#busca-erro", erro.message);
     return;
@@ -436,7 +451,9 @@ async function iniciarBusca() {
       }
       log(demo ? "Carregando os dados de demonstração..." : `Buscando '${categoria}' no Google Maps...`);
       const dados = await (
-        await api("/api/search", { json: { category: demo ? "demo" : categoria, ...filtros, allow_no_phone: $("#f-sem-telefone").checked, demo } })
+        await api("/api/search", {
+          json: { category: demo ? "demo" : categoria, ...filtros, ...localizacao, allow_no_phone: $("#f-sem-telefone").checked, demo },
+        })
       ).json();
       let novos = 0;
       for (const lead of dados.leads) {

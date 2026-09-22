@@ -110,6 +110,7 @@ def criar_app(
             "firebase": settings.firebase_public(),
             "hasApiKey": bool(cfg.api_key),
             "city": cfg.city_name,
+            "locationCoordinate": cfg.location_coordinate,
             "company": {"name": cfg.company_name},
             "defaults": {
                 "categories": list(cfg.categories),
@@ -133,7 +134,15 @@ def criar_app(
         if pedido.depth > settings.max_depth:
             raise HTTPException(422, f"A profundidade máxima é {settings.max_depth}.")
         cliente = None if pedido.demo else cliente_aisa()
-        cfg_busca = dataclasses.replace(cfg, min_rating=pedido.min_rating, min_reviews=pedido.min_reviews)
+        # No modo demonstração a cidade/localização ficam sempre no padrão: os dados fictícios são
+        # fixos em Bragança Paulista, então trocar a cidade só descartaria tudo por "fora_da_cidade".
+        overrides = {}
+        if not pedido.demo:
+            if pedido.city_name:
+                overrides["city_name"] = pedido.city_name
+            if pedido.location_coordinate:
+                overrides["location_coordinate"] = pedido.location_coordinate
+        cfg_busca = dataclasses.replace(cfg, min_rating=pedido.min_rating, min_reviews=pedido.min_reviews, **overrides)
         try:
             leads = buscar_leads(
                 cliente,
