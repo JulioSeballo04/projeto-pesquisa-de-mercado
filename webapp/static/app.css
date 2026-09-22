@@ -85,6 +85,11 @@ input:focus-visible, button:focus-visible, a:focus-visible { outline: 2px solid 
 .opcao { display: flex; align-items: flex-start; gap: 8px; font-size: 14px; margin: 6px 0; cursor: pointer; }
 .opcao input { margin-top: 4px; }
 
+.avancado { margin: 10px 0; border-top: 1px solid var(--border); padding-top: 10px; }
+.avancado summary { cursor: pointer; font-size: 14px; font-weight: 500; color: var(--accent); }
+.avancado[open] summary { margin-bottom: 10px; }
+.avancado .campo:last-child { margin-bottom: 0; }
+
 .btn {
   padding: 11px 16px;
   border: 1px solid var(--accent);
@@ -117,6 +122,13 @@ input:focus-visible, button:focus-visible, a:focus-visible { outline: 2px solid 
 .dica { color: var(--muted); font-size: 13px; margin: 8px 0; }
 .erro { background: var(--danger-bg); color: var(--danger); padding: 10px 12px; border-radius: 8px; font-size: 14px; margin: 10px 0; }
 .aviso { background: var(--warn-bg); color: var(--warn); padding: 10px 12px; border-radius: 8px; font-size: 14px; margin: 0 0 16px; }
+
+.spinner {
+  display: inline-block; width: 13px; height: 13px; vertical-align: -2px; margin-left: 6px;
+  border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%;
+  animation: girar 0.7s linear infinite;
+}
+@media (prefers-reduced-motion: reduce) { .spinner { animation: none; } }
 
 .progresso { list-style: none; margin: 0; padding: 0; font-size: 14px; color: var(--muted); }
 .progresso li { padding: 3px 0; }
@@ -152,3 +164,5 @@ input:focus-visible, button:focus-visible, a:focus-visible { outline: 2px solid 
 /* Links dentro do cartão (telefone, Maps) com área de toque confortável no celular,
    sem mudar a aparência: o padding é compensado pela margem negativa. */
 .lead-linha a { display: inline-block; padding: 8px 6px; margin: -8px -6px; }
+
+@keyframes girar { to { transform: rotate(360deg); } }

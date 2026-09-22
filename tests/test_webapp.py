@@ -84,6 +84,14 @@ class TestFluxoDemo(Base):
         self.assertEqual(descartado["reason_text"], "já possui site próprio")
         self.assertTrue(all(re.fullmatch(r"[0-9a-f]{12}", l["id"]) for l in leads))
 
+    def test_busca_demo_ignora_cidade_personalizada(self):
+        # Os dados de demonstração são fixos em Bragança Paulista; trocar a cidade no modo demo
+        # não pode fazer tudo ser descartado por "fora_da_cidade".
+        r = self.cliente.post("/api/search", json={**PEDIDO_BUSCA, "city_name": "Atibaia", "location_coordinate": "-23.1,-46.5,13z"})
+        self.assertEqual(r.status_code, 200, r.text)
+        aprovados = [l for l in r.json()["leads"] if l["approved"]]
+        self.assertEqual(len(aprovados), 2)
+
     def test_proposta_sem_llm(self):
         lead = self.aprovados()[0]
         p = self.proposta_de(lead)
@@ -240,6 +248,26 @@ class TestBuscaReal(unittest.TestCase):
         self.assertEqual([l["reason"] for l in exigente], ["nota_baixa", "possui_site"])
         normal = self.busca_real(cliente).json()["leads"]
         self.assertEqual([l["reason"] for l in normal], ["ok", "possui_site"])
+
+    def test_cidade_e_localizacao_personalizadas_valem_so_naquela_busca(self):
+        cliente, chamadas = self.cliente_com_aisa()
+        r = cliente.post(
+            "/api/search",
+            json={**PEDIDO_BUSCA, "demo": False, "city_name": "Atibaia", "location_coordinate": "-23.1178,-46.5503,13z"},
+        )
+        self.assertEqual(r.status_code, 200, r.text)
+        # Os dois itens falsos têm endereço em Bragança Paulista: com a cidade trocada para
+        # Atibaia, nenhum deles bate mais e os dois são descartados por "fora_da_cidade".
+        self.assertEqual([l["reason"] for l in r.json()["leads"]], ["fora_da_cidade", "fora_da_cidade"])
+        self.assertEqual(chamadas[0][1][0]["location_coordinate"], "-23.1178,-46.5503,13z")
+        # Sem cidade/localização no pedido, volta a usar o padrão do servidor (Bragança Paulista).
+        normal = self.busca_real(cliente).json()["leads"]
+        self.assertEqual([l["reason"] for l in normal], ["ok", "possui_site"])
+
+    def test_localizacao_em_formato_invalido_e_recusada(self):
+        cliente, _ = self.cliente_com_aisa()
+        r = cliente.post("/api/search", json={**PEDIDO_BUSCA, "demo": False, "location_coordinate": "não é uma coordenada"})
+        self.assertEqual(r.status_code, 422)
 
     def test_proposta_com_llm(self):
         cliente, chamadas = self.cliente_com_aisa()

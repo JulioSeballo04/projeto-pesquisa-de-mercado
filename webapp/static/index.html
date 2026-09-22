@@ -73,6 +73,26 @@
           <label class="opcao"><input type="checkbox" id="f-sem-telefone" /> Incluir empresas sem telefone</label>
           <label class="opcao"><input type="checkbox" id="f-demo" /> Modo demonstração (dados fictícios, sem custo)</label>
 
+          <details class="avancado" id="bloco-cidade">
+            <summary>Buscar em outra cidade</summary>
+            <div class="grade">
+              <div class="campo">
+                <label for="f-cidade">Cidade</label>
+                <input id="f-cidade" type="text" maxlength="120" placeholder="ex.: Atibaia" />
+              </div>
+              <div class="campo">
+                <label for="f-local">Localização (lat,long,zoom)</label>
+                <input id="f-local" type="text" maxlength="40" placeholder="-22.9527,-46.5419,13z" />
+              </div>
+            </div>
+            <p class="dica">
+              No Google Maps, clique com o botão direito no ponto que quer buscar e copie as coordenadas.
+              Acrescente o zoom no final (15z ≈ um bairro, 13z ≈ a cidade toda). Deixe os dois campos em
+              branco para usar <strong id="cidade-padrao"></strong> (padrão do servidor). Não vale para o
+              modo demonstração, que é sempre com dados fictícios de Bragança Paulista.
+            </p>
+          </details>
+
           <p class="dica" id="plano" aria-live="polite"></p>
           <p class="erro" id="busca-erro" role="alert" hidden></p>
           <button type="submit" class="btn" id="btn-buscar">Buscar leads</button>
@@ -80,7 +100,7 @@
       </section>
 
       <section class="painel" id="painel-progresso" hidden>
-        <h2 id="titulo-progresso">Andamento</h2>
+        <h2 id="titulo-progresso">Andamento <span class="spinner" id="spinner-tarefa" hidden aria-hidden="true"></span></h2>
         <ul class="progresso" id="lista-progresso" aria-live="polite"></ul>
         <p class="erro" id="erro-tarefa" role="alert" hidden></p>
         <button type="button" class="btn btn--sec btn--sm" id="btn-cancelar" hidden>Cancelar</button>

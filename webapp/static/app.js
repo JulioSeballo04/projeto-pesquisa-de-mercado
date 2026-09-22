@@ -34,6 +34,7 @@ const estado = {
   selecionados: new Set(),
   mostrarDescartados: false,
   ocupado: false,
+  acaoAtual: null, // "busca" | "propostas" | null — qual botão principal está rodando agora
   cancelar: false,
   progresso: [],
   erroTarefa: "",
@@ -228,6 +229,7 @@ function configurarApp() {
   $("#p-prazo").value = String(defaults.deliveryDays);
   $("#p-validade").value = String(defaults.validityDays);
   $("#empresa-proposta").textContent = `Proposta em nome de "${estado.config.company.name}" (definido no servidor).`;
+  $("#cidade-padrao").textContent = estado.config.city;
 
   if (!hasApiKey) {
     const aviso = $("#aviso-config");
@@ -255,7 +257,7 @@ function configurarApp() {
     renderChips();
     atualizarPlano();
   });
-  for (const id of ["#f-profundidade", "#f-demo"]) $(id).addEventListener("input", atualizarPlano);
+  for (const id of ["#f-profundidade", "#f-demo", "#f-cidade"]) $(id).addEventListener("input", atualizarPlano);
 
   $("#form-busca").addEventListener("submit", (e) => {
     e.preventDefault();
@@ -277,26 +279,42 @@ function configurarApp() {
   });
   $("#btn-gerar").addEventListener("click", gerarPropostas);
   $("#btn-zip").addEventListener("click", () =>
-    executar("#proposta-erro", async () => {
-      const prontas = estado.leads.filter((l) => l.proposal);
-      await baixar("/api/zip", { items: prontas.map((l) => ({ lead: carga(l), proposal: l.proposal })), ...lerOpcoes() }, "propostas.zip");
-    })
+    executar(
+      "#proposta-erro",
+      async () => {
+        const prontas = estado.leads.filter((l) => l.proposal);
+        await baixar("/api/zip", { items: prontas.map((l) => ({ lead: carga(l), proposal: l.proposal })), ...lerOpcoes() }, "propostas.zip");
+      },
+      $("#btn-zip")
+    )
   );
   $("#btn-csv").addEventListener("click", () =>
-    executar("#proposta-erro", () => baixar("/api/csv", { leads: estado.leads.map(carga) }, "leads.csv"))
+    executar("#proposta-erro", () => baixar("/api/csv", { leads: estado.leads.map(carga) }, "leads.csv"), $("#btn-csv"))
   );
 }
 
 // Dados do lead como o servidor espera (o servidor ignora campos que só existem na página).
 const carga = (l) => ({ ...l, proposal: undefined, proposal_source: l.proposal?.source ?? null });
 
-// Executa uma ação e mostra o erro (se houver) na caixa indicada.
-async function executar(seletorErro, acao) {
+// Executa uma ação e mostra o erro (se houver) na caixa indicada. Se um botão for passado, ele
+// fica desabilitado com o texto "Baixando..." durante a ação (evita clique duplo e dá feedback).
+async function executar(seletorErro, acao, botao) {
   mostrarErro(seletorErro, "");
+  const textoOriginal = botao?.textContent;
+  const desabilitadoOriginal = botao?.disabled;
+  if (botao) {
+    botao.disabled = true;
+    botao.textContent = "Baixando...";
+  }
   try {
     await acao();
   } catch (erro) {
     mostrarErro(seletorErro, erro.message);
+  } finally {
+    if (botao) {
+      botao.disabled = desabilitadoOriginal;
+      botao.textContent = textoOriginal;
+    }
   }
 }
 
@@ -334,9 +352,22 @@ function adicionarCategorias() {
 function atualizarPlano() {
   const demo = $("#f-demo").checked;
   const profundidade = lerNumero($("#f-profundidade").value);
+  const cidade = $("#f-cidade").value.trim() || estado.config.city;
+  $("#f-cidade").disabled = demo;
+  $("#f-local").disabled = demo;
   $("#plano").textContent = demo
     ? "Modo demonstração: nenhuma chamada paga. As categorias são fixas (padaria, barbearia, salão de beleza, restaurante e academia)."
-    : `${estado.categorias.length} busca(s) no Google Maps (até ${Number.isFinite(profundidade) ? profundidade : "?"} resultados cada). Isso consome créditos da AIsa.`;
+    : `${estado.categorias.length} busca(s) no Google Maps em ${cidade} (até ${Number.isFinite(profundidade) ? profundidade : "?"} resultados cada). Isso consome créditos da AIsa.`;
+}
+
+// Lê a cidade/localização personalizadas do formulário (vazio = usa o padrão do servidor).
+function lerLocalizacaoPersonalizada() {
+  const cidade = $("#f-cidade").value.trim();
+  const local = $("#f-local").value.trim();
+  if (local && !/^-?\d{1,3}(\.\d+)?,-?\d{1,3}(\.\d+)?,\d{1,2}z$/.test(local)) {
+    throw new Error("A localização deve estar no formato 'latitude,longitude,zoom' (ex.: -22.9527,-46.5419,13z).");
+  }
+  return { city_name: cidade || undefined, location_coordinate: local || undefined };
 }
 
 function lerFiltros() {
@@ -386,9 +417,10 @@ async function iniciarBusca() {
   mostrarErro("#busca-erro", "");
   if (estado.ocupado) return;
   const demo = $("#f-demo").checked;
-  let filtros;
+  let filtros, localizacao;
   try {
     filtros = lerFiltros();
+    localizacao = lerLocalizacaoPersonalizada();
   } catch (erro) {
     mostrarErro("#busca-erro", erro.message);
     return;
@@ -405,6 +437,7 @@ async function iniciarBusca() {
   estado.progresso = [];
   estado.erroTarefa = "";
   estado.ultimaRenderizacao = "";
+  estado.acaoAtual = "busca";
   definirOcupado(true, "Buscando...");
 
   // No modo demonstração uma única chamada devolve todos os dados fictícios.
@@ -418,7 +451,9 @@ async function iniciarBusca() {
       }
       log(demo ? "Carregando os dados de demonstração..." : `Buscando '${categoria}' no Google Maps...`);
       const dados = await (
-        await api("/api/search", { json: { category: demo ? "demo" : categoria, ...filtros, allow_no_phone: $("#f-sem-telefone").checked, demo } })
+        await api("/api/search", {
+          json: { category: demo ? "demo" : categoria, ...filtros, ...localizacao, allow_no_phone: $("#f-sem-telefone").checked, demo },
+        })
       ).json();
       let novos = 0;
       for (const lead of dados.leads) {
@@ -456,6 +491,7 @@ async function gerarPropostas() {
 
   estado.progresso = [];
   estado.erroTarefa = "";
+  estado.acaoAtual = "propostas";
   definirOcupado(true, "Gerando propostas...");
   let parar = null;
   try {
@@ -510,11 +546,15 @@ function renderTudo() {
 function renderTarefa() {
   const visivel = estado.ocupado || estado.progresso.length > 0 || Boolean(estado.erroTarefa);
   $("#painel-progresso").hidden = !visivel;
-  $("#titulo-progresso").textContent = estado.ocupado ? estado.tituloTarefa : estado.tituloTarefa || "Andamento";
+  // O título fica num nó de texto próprio para não apagar o spinner ao lado (que é outro elemento).
+  $("#titulo-progresso").firstChild.textContent = (estado.ocupado ? estado.tituloTarefa : estado.tituloTarefa || "Andamento") + " ";
+  $("#spinner-tarefa").hidden = !estado.ocupado;
   $("#lista-progresso").replaceChildren(...estado.progresso.slice(-6).map((m) => el("li", {}, m)));
   $("#btn-cancelar").hidden = !estado.ocupado;
   mostrarErro("#erro-tarefa", estado.erroTarefa);
+  const buscando = estado.ocupado && estado.acaoAtual === "busca";
   $("#btn-buscar").disabled = estado.ocupado;
+  $("#btn-buscar").textContent = buscando ? "Buscando..." : "Buscar leads";
 }
 
 function renderResumo() {
@@ -591,7 +631,7 @@ function criarItemLead(l) {
       linha.append(el("span", { class: "selo selo--ok" }, l.proposal.source === "llm" ? "proposta pronta (IA)" : "proposta pronta (texto padrão)"));
       const botao = el("button", { type: "button", class: "btn btn--sm" }, "Baixar PDF");
       botao.addEventListener("click", () =>
-        executar("#proposta-erro", () => baixar("/api/pdf", { lead: carga(l), proposal: l.proposal, ...lerOpcoes() }, "proposta.pdf"))
+        executar("#proposta-erro", () => baixar("/api/pdf", { lead: carga(l), proposal: l.proposal, ...lerOpcoes() }, "proposta.pdf"), botao)
       );
       linha.append(botao);
     }
@@ -614,7 +654,8 @@ function renderLeads() {
 
 function atualizarBotoes() {
   const n = estado.selecionados.size;
-  $("#btn-gerar").textContent = n ? `Gerar propostas (${n})` : "Gerar propostas";
+  const gerando = estado.ocupado && estado.acaoAtual === "propostas";
+  $("#btn-gerar").textContent = gerando ? "Gerando..." : n ? `Gerar propostas (${n})` : "Gerar propostas";
   $("#btn-gerar").disabled = estado.ocupado || n === 0;
   $("#btn-zip").disabled = estado.ocupado || !estado.leads.some((l) => l.proposal);
   $("#btn-csv").disabled = estado.ocupado || estado.leads.length === 0;

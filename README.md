@@ -23,6 +23,8 @@ Fontes: [catálogo](https://aisa.one/api) · [Google Maps SERP](https://aisa.one
 
 A mesma busca, triagem, proposta e PDF, numa página que abre no navegador do celular, tablet ou computador: você escolhe as categorias, vê os leads (aprovados e descartados com o motivo), marca os que quer, gera as propostas e baixa PDF, ZIP ou planilha.
 
+**Buscar em outra cidade.** A cidade e a localização padrão (definidas em `CITY_NAME`/`LOCATION_COORDINATE` no servidor) valem por padrão, mas dá para trocar por busca: abra "Buscar em outra cidade" no formulário, informe o nome da cidade e a localização (`latitude,longitude,zoom` — copie do Google Maps clicando com o botão direito no ponto desejado e acrescente o zoom, `15z` ≈ um bairro, `13z` ≈ a cidade). Essa opção não vale no modo demonstração, que é sempre com dados fictícios de Bragança Paulista.
+
 **Como funciona.** O servidor **não guarda nada entre uma chamada e outra**: cada chamada faz uma coisa só (buscar uma categoria, escrever uma proposta, montar um PDF). Quem conduz o fluxo é a página. Isso é necessário porque a Vercel executa cada requisição numa função separada, sem memória compartilhada nem processos em segundo plano. Na prática você ganha um botão **Cancelar** (para de gastar créditos no meio de um lote), e os resultados sobrevivem a recarregar a página (ficam no navegador até fechar a aba ou clicar em Sair).
 
 **Como é protegido.**
