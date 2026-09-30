@@ -123,7 +123,15 @@ function mostrarErro(seletor, mensagem) {
 
 function salvarSessao() {
   try {
-    sessionStorage.setItem(CHAVE_SESSAO, JSON.stringify({ leads: estado.leads, demo: estado.demo }));
+    sessionStorage.setItem(
+      CHAVE_SESSAO,
+      JSON.stringify({
+        leads: estado.leads,
+        demo: estado.demo,
+        cidade: $("#f-cidade").value.trim(),
+        local: $("#f-local").value.trim(),
+      })
+    );
   } catch {
     /* sem armazenamento (modo privado, cheio...): segue só em memória */
   }
@@ -136,6 +144,11 @@ function restaurarSessao() {
     estado.demo = Boolean(dados.demo);
     // Uma proposta "gerando" quando a página foi recarregada nunca terminou: volta a "nenhuma".
     estado.leads = dados.leads.map((l) => (l.proposalStatus === "gerando" ? { ...l, proposalStatus: "nenhuma" } : l));
+    if (dados.cidade || dados.local) {
+      $("#f-cidade").value = dados.cidade || "";
+      $("#f-local").value = dados.local || "";
+      $("#bloco-cidade").open = true; // não deixa a cidade restaurada escondida num painel fechado
+    }
   } catch {
     estado.leads = [];
   }
@@ -364,6 +377,11 @@ function atualizarPlano() {
 function lerLocalizacaoPersonalizada() {
   const cidade = $("#f-cidade").value.trim();
   const local = $("#f-local").value.trim();
+  // Só um dos dois preenchido busca no lugar padrão do servidor mas filtra pela cidade nova:
+  // o resultado é sempre "0 aprovados", sem nenhuma pista do motivo. Por isso exigimos os dois juntos.
+  if (Boolean(cidade) !== Boolean(local)) {
+    throw new Error("Preencha cidade e localização juntas, ou deixe as duas em branco para usar o padrão do servidor.");
+  }
   if (local && !/^-?\d{1,3}(\.\d+)?,-?\d{1,3}(\.\d+)?,\d{1,2}z$/.test(local)) {
     throw new Error("A localização deve estar no formato 'latitude,longitude,zoom' (ex.: -22.9527,-46.5419,13z).");
   }

@@ -11,7 +11,7 @@ from __future__ import annotations
 import hashlib
 import re
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from prospector.models import Business, Lead, Proposal
 from prospector.places import MOTIVOS_LEGIVEIS
@@ -77,6 +77,16 @@ class PedidoBusca(BaseModel):
                 "A localização deve estar no formato 'latitude,longitude,zoom' (ex.: -22.9527,-46.5419,13z)."
             )
         return limpa
+
+    @model_validator(mode="after")
+    def _cidade_e_localizacao_juntas(self) -> "PedidoBusca":
+        # Preencher só um dos dois busca no lugar padrão do servidor mas filtra pela cidade nova:
+        # o resultado é sempre "0 aprovados", sem nenhuma pista do motivo. Exigir os dois juntos evita isso.
+        if bool(self.city_name) != bool(self.location_coordinate):
+            raise ValueError(
+                "Preencha cidade e localização juntas, ou deixe as duas em branco para usar o padrão do servidor."
+            )
+        return self
 
 
 class Opcoes(BaseModel):

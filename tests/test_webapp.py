@@ -269,6 +269,17 @@ class TestBuscaReal(unittest.TestCase):
         r = cliente.post("/api/search", json={**PEDIDO_BUSCA, "demo": False, "location_coordinate": "não é uma coordenada"})
         self.assertEqual(r.status_code, 422)
 
+    def test_cidade_ou_localizacao_sozinha_e_recusada(self):
+        # Só um dos dois preenchido buscaria no lugar padrão do servidor mas filtraria pela
+        # cidade nova: o resultado seria sempre "0 aprovados", sem nenhuma pista do motivo.
+        cliente, _ = self.cliente_com_aisa()
+        so_cidade = cliente.post("/api/search", json={**PEDIDO_BUSCA, "demo": False, "city_name": "Atibaia"})
+        self.assertEqual(so_cidade.status_code, 422)
+        so_localizacao = cliente.post(
+            "/api/search", json={**PEDIDO_BUSCA, "demo": False, "location_coordinate": "-23.1178,-46.5503,13z"}
+        )
+        self.assertEqual(so_localizacao.status_code, 422)
+
     def test_proposta_com_llm(self):
         cliente, chamadas = self.cliente_com_aisa()
         lead = self.busca_real(cliente).json()["leads"][0]
